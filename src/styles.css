@@ -2748,6 +2748,13 @@ a {
 
 .danger-icon {
   color: var(--rose-600);
+  transition: all 0.15s ease;
+}
+
+.icon-btn.danger-icon:hover {
+  background: var(--rose-50, #fff1f2);
+  color: var(--rose-700, #be123c);
+  border-color: var(--rose-200, #fecdd3);
 }
 
 .form-section-heading {

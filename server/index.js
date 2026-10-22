@@ -49,6 +49,17 @@ app.put('/api/materials/:id', (req, res) => {
   db.materials[idx] = { ...db.materials[idx], ...req.body, id: db.materials[idx].id, quantity: Number(req.body.quantity ?? db.materials[idx].quantity) };
   writeDb(db); logAction('Data bahan diperbarui', db.materials[idx].supplierLot); res.json(db.materials[idx]);
 });
+app.delete('/api/materials/:id', (req, res) => {
+  const db = readDb(); const idx = db.materials.findIndex((m) => m.id === req.params.id);
+  if (idx < 0) return bad(res, 'Bahan tidak ditemukan.', 404);
+  const mat = db.materials[idx];
+  const isUsed = db.productions.some((p) => p.materials.some((x) => x.materialId === mat.id));
+  if (isUsed && req.query.force !== 'true') {
+    return bad(res, `Bahan ${mat.supplierLot} tidak dapat dihapus karena sedang digunakan dalam batch produksi.`);
+  }
+  db.materials.splice(idx, 1); writeDb(db); logAction('Bahan pangan dihapus', `${mat.name} · ${mat.supplierLot}`);
+  res.json({ ok: true, deleted: mat });
+});
 
 app.get('/api/productions', (_req, res) => {
   const db = readDb();
@@ -75,6 +86,17 @@ app.put('/api/productions/:id', (req, res) => {
   db.productions[idx] = { ...db.productions[idx], ...req.body, id: db.productions[idx].id, portions: Number(req.body.portions ?? db.productions[idx].portions) };
   writeDb(db); logAction('Batch produksi diperbarui', db.productions[idx].code); res.json(db.productions[idx]);
 });
+app.delete('/api/productions/:id', (req, res) => {
+  const db = readDb(); const idx = db.productions.findIndex((p) => p.id === req.params.id);
+  if (idx < 0) return bad(res, 'Batch produksi tidak ditemukan.', 404);
+  const prod = db.productions[idx];
+  const hasDist = db.distributions.some((d) => d.productionId === prod.id);
+  if (hasDist && req.query.force !== 'true') {
+    return bad(res, `Batch ${prod.code} tidak dapat dihapus karena sudah memiliki catatan distribusi pengiriman.`);
+  }
+  db.productions.splice(idx, 1); writeDb(db); logAction('Batch produksi dihapus', `${prod.code} · ${prod.menu}`);
+  res.json({ ok: true, deleted: prod });
+});
 
 app.get('/api/distributions', (_req, res) => {
   const db = readDb();
@@ -96,6 +118,13 @@ app.put('/api/distributions/:id', (req, res) => {
   const next = { ...db.distributions[idx], ...req.body, id: db.distributions[idx].id, portions: Number(req.body.portions ?? db.distributions[idx].portions) };
   if (next.status === 'Diterima' && !next.receiver?.trim()) return bad(res, 'Nama petugas penerima wajib diisi untuk konfirmasi penerimaan.');
   db.distributions[idx] = next; writeDb(db); logAction('Status distribusi diperbarui', `${next.destination} · ${next.status}`); res.json(next);
+});
+app.delete('/api/distributions/:id', (req, res) => {
+  const db = readDb(); const idx = db.distributions.findIndex((d) => d.id === req.params.id);
+  if (idx < 0) return bad(res, 'Data distribusi tidak ditemukan.', 404);
+  const dist = db.distributions[idx];
+  db.distributions.splice(idx, 1); writeDb(db); logAction('Catatan distribusi dihapus', `${dist.destination} · ${dist.code}`);
+  res.json({ ok: true, deleted: dist });
 });
 
 function traceMaterial(db, material) {
@@ -141,6 +170,13 @@ app.put('/api/cases/:id', (req, res) => {
   if (idx < 0) return bad(res, 'Kasus tidak ditemukan.', 404);
   db.cases[idx] = { ...db.cases[idx], ...req.body, id: db.cases[idx].id, updatedAt: new Date().toISOString() };
   writeDb(db); logAction('Penanganan kasus diperbarui', `${db.cases[idx].code} · ${db.cases[idx].status}`); res.json(db.cases[idx]);
+});
+app.delete('/api/cases/:id', (req, res) => {
+  const db = readDb(); const idx = db.cases.findIndex((c) => c.id === req.params.id);
+  if (idx < 0) return bad(res, 'Kasus tidak ditemukan.', 404);
+  const item = db.cases[idx];
+  db.cases.splice(idx, 1); writeDb(db); logAction('Catatan kasus dihapus', `${item.code} · ${item.type}`);
+  res.json({ ok: true, deleted: item });
 });
 
 app.get('/api/verify/:code', (req, res) => {

@@ -6,7 +6,7 @@ import {
   ClipboardCheck, ClipboardList, Clock3, CookingPot, FileClock, Filter, Home, Leaf,
   ListFilter, LoaderCircle, MapPin, Menu, Package, PackageCheck, Plus, QrCode,
   RefreshCw, Search, ShieldAlert, ShieldCheck, Truck, Utensils, X, Zap, Sprout,
-  Printer, ExternalLink, Copy, Play, Sparkles
+  Printer, ExternalLink, Copy, Play, Sparkles, Download, Trash2
 } from 'lucide-react';
 
 const NAV = [
@@ -43,6 +43,33 @@ const statusTone = (status = '') => {
   if (['perlu pemeriksaan', 'dalam pemeriksaan', 'perjalanan', 'dalam proses', 'sedang', 'menunggu konfirmasi'].some((x) => s.includes(x))) return 'warn';
   if (['baru', 'belum', 'kadaluwarsa', 'ditahan', 'risiko', 'gagal', 'tinggi'].some((x) => s.includes(x))) return 'danger';
   return 'neutral';
+};
+
+const exportToCsv = (filename, rows) => {
+  if (!rows || !rows.length) return;
+  const separator = ',';
+  const keys = Object.keys(rows[0]);
+  const csvContent =
+    keys.join(separator) +
+    '\n' +
+    rows.map(row => {
+      return keys.map(k => {
+        let cell = row[k] === null || row[k] === undefined ? '' : row[k];
+        cell = typeof cell === 'object' ? JSON.stringify(cell).replace(/"/g, '""') : String(cell).replace(/"/g, '""');
+        if (cell.search(/("|,|\n)/g) >= 0) cell = `"${cell}"`;
+        return cell;
+      }).join(separator);
+    }).join('\n');
+
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement('a');
+  const url = URL.createObjectURL(blob);
+  link.setAttribute('href', url);
+  link.setAttribute('download', filename);
+  link.style.visibility = 'hidden';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
 };
 
 const api = async (path, options = {}) => {
@@ -290,6 +317,23 @@ function MainApp() {
       flash(e.message);
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const deleteResource = async (path, label) => {
+    if (!window.confirm('Apakah Anda yakin ingin menghapus data ini?')) return;
+    try {
+      await api(path, { method: 'DELETE' });
+      await reload(true);
+      if (page === 'trace' && traceTerm) {
+        try {
+          const result = await api(`/api/trace?q=${encodeURIComponent(traceTerm)}`);
+          setTraceResult(result);
+        } catch {}
+      }
+      flash(label);
+    } catch (e) {
+      flash(e.message);
     }
   };
 
@@ -629,6 +673,7 @@ function MainApp() {
                 setTraceTerm(q);
                 runTrace(q);
               }}
+              onDelete={(m) => deleteResource(`/api/materials/${m.id}`, 'Data bahan berhasil dihapus.')}
             />
           )}
 
@@ -638,6 +683,7 @@ function MainApp() {
               materials={materials}
               onAdd={() => setModal({ type: 'production' })}
               onQr={(p) => setSelectedProductionForQr(p)}
+              onDelete={(p) => deleteResource(`/api/productions/${p.id}`, 'Batch produksi berhasil dihapus.')}
             />
           )}
 
@@ -649,6 +695,7 @@ function MainApp() {
               setFilter={setDistributionFilter}
               onAdd={() => setModal({ type: 'distribution' })}
               onUpdate={(item) => setModal({ type: 'edit-distribution', item })}
+              onDelete={(d) => deleteResource(`/api/distributions/${d.id}`, 'Data distribusi berhasil dihapus.')}
             />
           )}
 
@@ -675,6 +722,7 @@ function MainApp() {
                 setPage('trace');
                 runTrace(m.supplierLot);
               }}
+              onDelete={(c) => deleteResource(`/api/cases/${c.id}`, 'Catatan risiko berhasil dihapus.')}
             />
           )}
         </div>
@@ -1169,14 +1217,40 @@ function Dashboard({ summary, materials, productions, distributions, cases, audi
   );
 }
 
-function MaterialsPage({ materials, total, search, onSearch, category, onCategoryChange, onAdd, onEdit, onTrace }) {
+function MaterialsPage({ materials, total, search, onSearch, category, onCategoryChange, onAdd, onEdit, onTrace, onDelete }) {
   return (
     <>
       <SectionTitle
         eyebrow="INVENTARIS & RANTAI PASOK"
         title="Bahan Pangan Masuk"
         description="Dokumentasikan lot bahan baku dari pemasok, tanggal kedatangan, kondisi awal, serta masa kedaluwarsa untuk memastikan ketertelusuran."
-        action={<Button onClick={onAdd} icon={Plus}>Tambah Bahan Masuk</Button>}
+        action={
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <Button
+              variant="outline"
+              onClick={() =>
+                exportToCsv(
+                  'rekap-bahan-pangan.csv',
+                  materials.map((m) => ({
+                    'Nama Bahan': m.name,
+                    'Kategori': m.category,
+                    'Kode Lot': m.supplierLot,
+                    'Pemasok': m.supplier,
+                    'Diterima': m.receivedDate,
+                    'Kedaluwarsa': m.expiryDate,
+                    'Jumlah': m.quantity,
+                    'Satuan': m.unit,
+                    'Kondisi': m.condition
+                  }))
+                )
+              }
+              icon={Download}
+            >
+              Ekspor CSV
+            </Button>
+            <Button onClick={onAdd} icon={Plus}>Tambah Bahan Masuk</Button>
+          </div>
+        }
       />
 
       <div className="summary-line">
@@ -1260,12 +1334,15 @@ function MaterialsPage({ materials, total, search, onSearch, category, onCategor
                       </td>
                       <td><StatusPill>{m.condition}</StatusPill></td>
                       <td style={{ textAlign: 'right' }}>
-                        <div className="row-actions" style={{ justifyContent: 'flex-end' }}>
+                        <div className="row-actions" style={{ justifyContent: 'flex-end', gap: 4 }}>
                           <button className="icon-btn" title="Telusuri Rantai Lot Ini" onClick={() => onTrace(m.supplierLot)}>
                             <Search size={16} />
                           </button>
                           <button className="icon-btn" title="Edit Data Bahan" onClick={() => onEdit(m)}>
                             <ChevronRight size={17} />
+                          </button>
+                          <button className="icon-btn danger-icon" title="Hapus Bahan" onClick={() => onDelete(m)}>
+                            <Trash2 size={16} />
                           </button>
                         </div>
                       </td>
@@ -1295,7 +1372,7 @@ function MaterialsPage({ materials, total, search, onSearch, category, onCategor
   );
 }
 
-function ProductionPage({ productions, materials, onAdd, onQr }) {
+function ProductionPage({ productions, materials, onAdd, onQr, onDelete }) {
   const totalPortions = productions.reduce((s, p) => s + Number(p.portions || 0), 0);
   const usedLotIds = new Set(productions.flatMap((p) => p.materials.map((m) => m.materialId)));
 
@@ -1305,7 +1382,32 @@ function ProductionPage({ productions, materials, onAdd, onQr }) {
         eyebrow="DAPUR GIZI & PENGOLAHAN"
         title="Batch Produksi Masakan"
         description="Hubungkan bahan baku ber-lot ke dalam batch masakan harian dengan jumlah porsi yang terukur."
-        action={<Button onClick={onAdd} icon={Plus}>Buat Batch Masakan</Button>}
+        action={
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <Button
+              variant="outline"
+              onClick={() =>
+                exportToCsv(
+                  'rekap-batch-produksi.csv',
+                  productions.map((p) => ({
+                    'Kode Batch': p.code,
+                    'Menu Makanan': p.menu,
+                    'Jumlah Porsi': p.portions,
+                    'Koki Penanggung Jawab': p.cook,
+                    'Waktu Selesai': p.cookedAt,
+                    'Status': p.status,
+                    'Jumlah Bahan': (p.materials || []).length,
+                    'Catatan': p.notes || ''
+                  }))
+                )
+              }
+              icon={Download}
+            >
+              Ekspor CSV
+            </Button>
+            <Button onClick={onAdd} icon={Plus}>Buat Batch Masakan</Button>
+          </div>
+        }
       />
 
       <div className="mini-stats three">
@@ -1364,9 +1466,14 @@ function ProductionPage({ productions, materials, onAdd, onQr }) {
 
               <div className="production-card-bottom">
                 <span className="small-muted">Tercatat {shortDate(p.createdAt)}</span>
-                <Button size="sm" variant="outline" onClick={() => onQr(p)} icon={QrCode}>
-                  QR Verifikasi
-                </Button>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <button className="icon-btn danger-icon" title="Hapus Batch Masakan" onClick={() => onDelete(p)}>
+                    <Trash2 size={16} />
+                  </button>
+                  <Button size="sm" variant="outline" onClick={() => onQr(p)} icon={QrCode}>
+                    QR Verifikasi
+                  </Button>
+                </div>
               </div>
             </article>
           ))}
@@ -1383,7 +1490,7 @@ function ProductionPage({ productions, materials, onAdd, onQr }) {
   );
 }
 
-function DistributionPage({ distributions, productions, filter, setFilter, onAdd, onUpdate }) {
+function DistributionPage({ distributions, productions, filter, setFilter, onAdd, onUpdate, onDelete }) {
   const total = distributions.reduce((s, d) => s + Number(d.portions || 0), 0);
   const delivered = distributions.filter((d) => d.status === 'Diterima').length;
 
@@ -1393,7 +1500,32 @@ function DistributionPage({ distributions, productions, filter, setFilter, onAdd
         eyebrow="LOGISTIK & SERAH TERIMA"
         title="Distribusi Makanan Sekolah"
         description="Pantau keberangkatan makanan bergizi dari dapur SPPG hingga serah terima yang terkonfirmasi oleh petugas sekolah."
-        action={<Button onClick={onAdd} icon={Plus}>Catat Distribusi Baru</Button>}
+        action={
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <Button
+              variant="outline"
+              onClick={() =>
+                exportToCsv(
+                  'rekap-distribusi-sekolah.csv',
+                  distributions.map((d) => ({
+                    'Tujuan Penerima': d.destination,
+                    'Alamat / Wilayah': d.address || d.recipientType,
+                    'Kode Batch': d.production?.code || '—',
+                    'Menu Makanan': d.production?.menu || '—',
+                    'Waktu Kirim': d.dispatchTime,
+                    'Jumlah Porsi': d.portions,
+                    'Status': d.status,
+                    'Petugas Penerima': d.receiver || 'Belum dikonfirmasi'
+                  }))
+                )
+              }
+              icon={Download}
+            >
+              Ekspor CSV
+            </Button>
+            <Button onClick={onAdd} icon={Plus}>Catat Distribusi Baru</Button>
+          </div>
+        }
       />
 
       <div className="mini-stats three">
@@ -1479,9 +1611,14 @@ function DistributionPage({ distributions, productions, filter, setFilter, onAdd
                       )}
                     </td>
                     <td style={{ textAlign: 'right' }}>
-                      <Button size="sm" variant="outline" onClick={() => onUpdate(d)}>
-                        Update Status
-                      </Button>
+                      <div style={{ display: 'inline-flex', gap: 6, alignItems: 'center', justifyContent: 'flex-end' }}>
+                        <Button size="sm" variant="outline" onClick={() => onUpdate(d)}>
+                          Update Status
+                        </Button>
+                        <button className="icon-btn danger-icon" title="Hapus Data Distribusi" onClick={() => onDelete(d)}>
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -1793,7 +1930,7 @@ function TracePage({ term, setTerm, result, error, onSearch, onCreateCase, onQr 
   );
 }
 
-function CasesPage({ cases, materials, onAdd, onUpdate, onTrace }) {
+function CasesPage({ cases, materials, onAdd, onUpdate, onTrace, onDelete }) {
   const openCases = cases.filter((c) => !['Selesai', 'Ditutup'].includes(c.status));
   const inProgressCases = cases.filter((c) => c.status === 'Dalam pemeriksaan');
   const closedCases = cases.filter((c) => ['Selesai', 'Ditutup'].includes(c.status));
@@ -1804,7 +1941,36 @@ function CasesPage({ cases, materials, onAdd, onUpdate, onTrace }) {
         eyebrow="PENGAWASAN & MITIGASI MUTU"
         title="Pusat Risiko & Insiden"
         description="Dokumentasikan temuan mutu bahan baku, investigasi rantai masakan, serta tindakan korektif untuk memastikan keamanan pangan."
-        action={<Button onClick={onAdd} icon={Plus}>Catat Temuan Risiko</Button>}
+        action={
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <Button
+              variant="outline"
+              onClick={() =>
+                exportToCsv(
+                  'rekap-kasus-risiko.csv',
+                  cases.map((c) => {
+                    const mat = c.material || materials.find((m) => m.id === c.materialId);
+                    return {
+                      'Kode Kasus': c.code,
+                      'Bahan Pangan': mat?.name || c.materialId,
+                      'Lot Pemasok': mat?.supplierLot || '—',
+                      'Kategori Risiko': c.type,
+                      'Tingkat Keparahan': c.severity,
+                      'Status': c.status,
+                      'Waktu Laporan': c.createdAt,
+                      'Deskripsi Temuan': c.description,
+                      'Tindakan Mitigasi': c.action || ''
+                    };
+                  })
+                )
+              }
+              icon={Download}
+            >
+              Ekspor CSV
+            </Button>
+            <Button onClick={onAdd} icon={Plus}>Catat Temuan Risiko</Button>
+          </div>
+        }
       />
 
       <div className="risk-summary-grid">
@@ -1901,6 +2067,13 @@ function CasesPage({ cases, materials, onAdd, onUpdate, onTrace }) {
                 <Button size="sm" onClick={() => onUpdate(c)} icon={ClipboardCheck}>
                   Tindak Lanjuti
                 </Button>
+                <button
+                  className="icon-btn danger-icon"
+                  title="Hapus Catatan Risiko"
+                  onClick={() => onDelete(c)}
+                >
+                  <Trash2 size={16} />
+                </button>
               </div>
             </article>
           );

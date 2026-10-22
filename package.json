@@ -1,0 +1,27 @@
+{
+  "name": "sajitrace-web",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "SajiTrace - prototipe penelusuran batch bahan pangan hingga distribusi untuk SPPG",
+  "scripts": {
+    "dev": "concurrently -k -n API,WEB -c blue,green \"npm:server:dev\" \"npm:client:dev\"",
+    "server:dev": "node --watch server/index.js",
+    "client:dev": "vite --host 0.0.0.0",
+    "build": "vite build",
+    "start": "node server/index.js",
+    "check:server": "node --check server/index.js && node --check server/db.js",
+    "preview": "vite preview --host 0.0.0.0"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.2",
+    "express": "^4.21.2",
+    "lucide-react": "^0.468.0",
+    "qrcode.react": "^4.2.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "vite": "^6.0.7"
+  },
+  "devDependencies": {}
+}
